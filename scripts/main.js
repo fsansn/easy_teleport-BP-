@@ -468,17 +468,18 @@ world.beforeEvents.playerInteractWithBlock.subscribe((ev) => {
 
         }
 
-        startCooldown(player);
+startCooldown(player);
 
-        // GUIを開かない
-        ev.cancel = true;
+// GUIを開かない
+ev.cancel = true;
 
-        requestTeleport(
-            player,
-            item,
-            data
-        );
-
+system.run(() => {
+    requestTeleport(
+        player,
+        item,
+        data
+    );
+});
     } catch (e) {
 
         console.warn(

@@ -5,7 +5,7 @@
       "name": "Easy Teleport",
       "uuid": "48176488-0c39-422d-8458-c7a948d6ef46",
       "min_engine_version": [1,20,10],
-      "version": [1,0,2]
+      "version": [1,0,3]
     },
     "modules": [
       {
