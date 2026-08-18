@@ -1,4 +1,9 @@
-import { world, system } from "@minecraft/server";
+import {
+    world,
+    system,
+    LocationWaypoint,
+    WaypointTexture,
+} from "@minecraft/server";
 
 /* -------------------------------------------------------
  * Easy Teleport
@@ -49,6 +54,7 @@ const LORE_PREFIX = "ETP:";
 
 const cooldown = new Map();
 const teleportSessions = new Map();
+const locatorWaypoints = new Map();
 
 /* -------------------------------------------------------
  * 共通メッセージ
@@ -138,11 +144,11 @@ function getItemName(item) {
  * ロードストーン登録
  * ------------------------------------------------------*/
 
-world.afterEvents.itemUseOn.subscribe((ev) => {
+world.afterEvents.playerInteractWithBlock.subscribe((ev) => {
 
     try {
 
-        const player = ev.source;
+        const player = ev.player;
         const used = ev.itemStack;
 
         if (!player || !used) return;
@@ -351,7 +357,9 @@ world.afterEvents.itemUse.subscribe((ev) => {
 
     } catch (e) {
 
-        console.warn(e);
+        console.warn(
+            `[Easy Teleport][Compass Teleport] ${e}\n${e.stack ?? ""}`
+        );
 
     }
 
@@ -549,33 +557,31 @@ function createTickingArea(
         "tickingarea作成"
     );
 
-    player.dimension
-        .runCommandAsync(command)
+try {
 
-        .then(() => {
+    player.dimension.runCommand(
+        command
+    );
 
-            debug(
-                player,
-                "tickingarea追加成功"
-            );
+    debug(
+        player,
+        "tickingarea追加成功"
+    );
 
-            waitChunkLoaded(
-                player
-            );
+    waitChunkLoaded(
+        player
+    );
 
-        })
+} catch (e) {
 
-        .catch((e) => {
+    console.warn(e);
 
-            console.warn(e);
+    cleanupTeleport(
+        player,
+        "tickingarea作成失敗"
+    );
 
-            cleanupTeleport(
-                player,
-                "tickingarea作成失敗"
-            );
-
-        });
-
+}
 }
 
 /* -------------------------------------------------------
@@ -763,11 +769,17 @@ function cleanupTeleport(
         "tickingarea削除"
     );
 
-    player.dimension
-        .runCommandAsync(
-            `tickingarea remove ${session.areaName}`
-        )
-        .catch(console.warn);
+try {
+
+    player.dimension.runCommand(
+        `tickingarea remove ${session.areaName}`
+    );
+
+} catch (e) {
+
+    console.warn(e);
+
+}
 
     if (failMessage) {
 
@@ -987,6 +999,179 @@ function startCooldown(
     }, CONFIG.COOLDOWN);
 
 }
+
+/* -------------------------------------------------------
+ * ロケーターバー
+ * ------------------------------------------------------*/
+
+function updateLocatorWaypoints() {
+
+    for (const player of world.getAllPlayers()) {
+
+        try {
+
+            const state =
+                locatorWaypoints.get(player.id);
+
+            const equippable =
+                player.getComponent(
+                    "minecraft:equippable"
+                );
+
+            const held =
+                equippable?.getEquipment(
+                    "Mainhand"
+                );
+
+            // 登録済みロードストーンコンパス以外なら解除
+            if (
+                !held ||
+                held.typeId !== ITEM.LODESTONE_COMPASS
+            ) {
+
+                if (state) {
+
+                    state.waypoint.remove();
+
+                    locatorWaypoints.delete(
+                        player.id
+                    );
+
+                    debug(
+                        player,
+                        "ロケーターバー解除"
+                    );
+
+                }
+
+                continue;
+
+            }
+
+            const data =
+                readData(held);
+
+            // Loreのないロードストーンコンパスなら解除
+            if (!data) {
+
+                if (state) {
+
+                    state.waypoint.remove();
+
+                    locatorWaypoints.delete(
+                        player.id
+                    );
+
+                    debug(
+                        player,
+                        "ロケーターバー解除"
+                    );
+
+                }
+
+                continue;
+
+            }
+
+            const key =
+                `${data.dimension}:${data.x}:${data.y}:${data.z}`;
+
+            // 同じ転移先なら何もしない
+            if (
+                state &&
+                state.key === key
+            ) {
+
+                continue;
+
+            }
+
+            const dimension =
+                world.getDimension(
+                    data.dimension
+                );
+
+            const location = {
+
+                dimension,
+                x: data.x,
+                y: data.y,
+                z: data.z,
+
+            };
+
+            // 既存Waypointがあれば更新
+            if (state) {
+
+                state.waypoint
+                    .setDimensionLocation(
+                        location
+                    );
+
+                state.key = key;
+
+                debug(
+                    player,
+                    "ロケーターバー更新"
+                );
+
+                continue;
+
+            }
+
+            const textureSelector = {
+
+                textureBoundsList: [
+
+                    {
+                        lowerBound: 0,
+                        texture:
+                            WaypointTexture.Circle,
+                    },
+
+                ],
+
+            };
+
+            const waypoint =
+                new LocationWaypoint(
+                    location,
+                    textureSelector
+                );
+
+            player.locatorBar.addWaypoint(
+                waypoint
+            );
+
+            locatorWaypoints.set(
+                player.id,
+                {
+                    waypoint,
+                    key,
+                }
+            );
+
+            debug(
+                player,
+                "ロケーターバー追加"
+            );
+
+        } catch (e) {
+
+            console.warn(
+                `[Easy Teleport] LocatorBar: ${e}`
+            );
+
+        }
+
+    }
+
+}
+
+system.runInterval(
+    updateLocatorWaypoints,
+    1
+);
 
 /* -------------------------------------------------------
  * main.js 終了
